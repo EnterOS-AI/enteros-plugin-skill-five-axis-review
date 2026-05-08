@@ -1,0 +1,17 @@
+name: molecule-skill-five-axis-review
+version: 1.0.0
+description: >-
+  Five-axis self-review for Phase 4 of the Molecule AI dev SOP. Replaces
+  the unstructured "list 3 weakest spots" self-review with a per-axis
+  pass — Correctness / Readability / Architecture / Security / Performance —
+  each producing a finding with severity (Critical / Required / Optional /
+  Nit / FYI) or an explicit "no finding because X". Empty axes need
+  justification — that's what catches blind spots.
+author: Molecule AI
+tags: [molecule, sop, self-review, code-quality]
+
+runtimes:
+  - claude_code
+
+skills:
+  - five-axis-review
