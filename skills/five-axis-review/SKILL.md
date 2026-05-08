@@ -10,10 +10,18 @@ You finished implementing. Tests pass. Before opening the PR, walk the diff thro
 
 ## When to invoke
 
-- Just before opening a PR (after Phase 3 implementation, before Phase 4 verification publishes the change).
-- When asked by the user / a peer to "do a hostile self-review" or "five-axis review."
-- After any refactor of code you wrote, before declaring done.
-- NOT for trivial single-line changes or pure docs (overhead exceeds value).
+This skill **is** the Phase 4 procedure of the dev SOP. Run it once
+implementation (Phase 3) is done and tests pass — its output goes into
+the PR description, and only then does the deploy + verification chain
+take over.
+
+- Run it just before opening a PR, on the diff you're about to submit.
+- Run it again after any substantive refactor of code you wrote, before
+  declaring done.
+- Run it on demand when the user / a peer asks for a "hostile self-review"
+  or "five-axis review."
+- Skip it for trivial single-line changes and pure docs (overhead exceeds
+  value).
 
 ## The five axes
 
@@ -96,28 +104,28 @@ Check:
 
 ## Output shape
 
-After walking all five axes, produce a structured report. Use this exact format so PR reviewers can scan it quickly:
+After walking all five axes, produce a structured report. Use this exact
+format so PR reviewers can scan it quickly. The angle-bracket placeholders
+and the "(or)" prefix are meta-instructions — substitute real text or
+delete the alternate line; do not paste them literally.
 
 ```markdown
 ## Phase 4 self-review (five-axis)
 
 **Correctness:**
-- Required: <finding> — <one-line proposed fix>
-- (or) No finding because <explicit reason — not "I checked" but WHY there's no concern>
+- Required: cache validity gap — partial cache writes look complete to next reader; add .complete marker file written atomically.
 
 **Readability:**
-- Nit: <finding>
-- (or) No finding because <reason>
+- No finding because the diff only adds one private helper and its name matches the verb-noun convention used by the rest of the file.
 
 **Architecture:**
-- (axis-specific findings or no-finding-because)
+- (one bullet per axis: a finding with severity, OR a no-finding-because line)
 
 **Security:**
-- Critical: <finding> — <one-line fix>
-- (or) No finding because <reason>
+- Critical: token persisted to .git/config because it lives in the URL userinfo — switch to git -c http.extraHeader.
 
 **Performance:**
-- (axis-specific findings or no-finding-because)
+- (one bullet per axis: a finding with severity, OR a no-finding-because line)
 ```
 
 Then ADDRESS the Critical and Required items before opening the PR. Optional/Nit/FYI can ship as follow-ups (file as parked tasks if not addressed in this PR).
