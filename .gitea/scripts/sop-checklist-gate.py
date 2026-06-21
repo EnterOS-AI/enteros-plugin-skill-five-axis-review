@@ -109,8 +109,17 @@ def normalize_slug(raw: str, numeric_aliases: dict[int, str] | None = None) -> s
 # Optional trailing note after the slug for /sop-ack and required reason
 # for /sop-revoke (RFC#351 open question 4 — reason is captured but not
 # yet validated; future iteration may require a min-length).
+#
+# The slug capture is GREEDY on the `[A-Za-z0-9_\- ]+` class so a
+# natural-space input like `/sop-ack comprehensive testing` is captured
+# as a single slug `comprehensive testing` (which normalize_slug then
+# joins to `comprehensive-testing`) instead of the buggy non-greedy
+# behavior that captured only the first word and leaked the rest into
+# the note group. The optional trailing-note group `(?:[ \t]+(.*))?`
+# still matches a real note when one is present on the same line.
+# Fixes CR2 12915 (natural-space /sop-ack parser bug).
 _DIRECTIVE_RE = re.compile(
-    r"^[ \t]*/(sop-ack|sop-revoke)[ \t]+([A-Za-z0-9_\- ]+?)(?:[ \t]+(.*))?[ \t]*$",
+    r"^[ \t]*/(sop-ack|sop-revoke)[ \t]+([A-Za-z0-9_\- ]+)(?:[ \t]+(.*))?[ \t]*$",
     re.MULTILINE,
 )
 
@@ -132,32 +141,19 @@ def parse_directives(
     for m in _DIRECTIVE_RE.finditer(comment_body):
         kind = m.group(1)
         raw_slug = (m.group(2) or "").strip()
-        # If the raw match included trailing words, the regex non-greedy
-        # captured only the first token; strip again for safety.
-        # We split on whitespace to keep the FIRST word as the slug, and
-        # everything after as the note.
-        parts = raw_slug.split()
-        if not parts:
+        # The slug regex is GREEDY on the `[A-Za-z0-9_\- ]+` class so
+        # `raw_slug` is the full multi-word capture (e.g. "comprehensive
+        # testing" for `/sop-ack comprehensive testing`). normalize_slug
+        # then joins whitespace → kebab. The optional note group (regex
+        # group 3) still captures a true trailing note when the user
+        # wrote something like `/sop-ack comprehensive-testing extra note`
+        # with the slug as a single token followed by separate words.
+        # Together these make the documented natural-space command
+        # contract actually work. Fixes CR2 12915.
+        if not raw_slug:
             continue
-        first = parts[0]
-        # If the slug-capture greedily matched multiple words (e.g.
-        # "comprehensive testing"), preserve normalize behavior: join
-        # the WHOLE first-word-token only; trailing words get appended to
-        # the note. The regex limits group(2) to [A-Za-z0-9_\- ] so we
-        # may have multi-word forms here — normalize handles them.
-        if len(parts) > 1:
-            # User wrote "/sop-ack comprehensive testing extra-note"
-            # → treat "comprehensive testing" as the slug source if it
-            # normalizes to a known item; otherwise treat "comprehensive"
-            # as slug and "testing extra-note" as note. We defer the
-            # disambiguation to the caller via the returned canonical
-            # slug. For simplicity: try the WHOLE captured string first.
-            canonical = normalize_slug(raw_slug, numeric_aliases)
-        else:
-            canonical = normalize_slug(first, numeric_aliases)
+        canonical = normalize_slug(raw_slug, numeric_aliases)
         note_from_group = (m.group(3) or "").strip()
-        # If we collapsed multi-word slug into kebab and there's a
-        # trailing-text group too, append it.
         out.append((kind, canonical, note_from_group))
     return out
 
