@@ -110,16 +110,16 @@ def normalize_slug(raw: str, numeric_aliases: dict[int, str] | None = None) -> s
 # for /sop-revoke (RFC#351 open question 4 — reason is captured but not
 # yet validated; future iteration may require a min-length).
 #
-# The slug capture is GREEDY on the `[A-Za-z0-9_\- ]+` class so a
-# natural-space input like `/sop-ack comprehensive testing` is captured
-# as a single slug `comprehensive testing` (which normalize_slug then
-# joins to `comprehensive-testing`) instead of the buggy non-greedy
-# behavior that captured only the first word and leaked the rest into
-# the note group. The optional trailing-note group `(?:[ \t]+(.*))?`
-# still matches a real note when one is present on the same line.
-# Fixes CR2 12915 (natural-space /sop-ack parser bug).
+# The slug+rest capture is LAZY on the rest-group so the regex
+# matches minimally; parse_directives then peels trailing words off
+# the captured text until the prefix normalizes to a known alias
+# (or to a digit-alias) — see parse_directives below. The old greedy
+# `+` slug capture bled same-line trailing notes into the slug
+# (e.g. `/sop-ack 1 my note` became slug `1-my-note`); the new
+# peel-to-match algorithm keeps both natural-space and trailing-note
+# contracts working.
 _DIRECTIVE_RE = re.compile(
-    r"^[ \t]*/(sop-ack|sop-revoke)[ \t]+([A-Za-z0-9_\- ]+)(?:[ \t]+(.*))?[ \t]*$",
+    r"^[ \t]*/(sop-ack|sop-revoke)[ \t]+(.+?)[ \t]*$",
     re.MULTILINE,
 )
 
@@ -138,23 +138,70 @@ def parse_directives(
     out: list[tuple[str, str, str]] = []
     if not comment_body:
         return out
+    valid_slugs = set(numeric_aliases.values()) if numeric_aliases else set()
     for m in _DIRECTIVE_RE.finditer(comment_body):
         kind = m.group(1)
-        raw_slug = (m.group(2) or "").strip()
-        # The slug regex is GREEDY on the `[A-Za-z0-9_\- ]+` class so
-        # `raw_slug` is the full multi-word capture (e.g. "comprehensive
-        # testing" for `/sop-ack comprehensive testing`). normalize_slug
-        # then joins whitespace → kebab. The optional note group (regex
-        # group 3) still captures a true trailing note when the user
-        # wrote something like `/sop-ack comprehensive-testing extra note`
-        # with the slug as a single token followed by separate words.
-        # Together these make the documented natural-space command
-        # contract actually work. Fixes CR2 12915.
-        if not raw_slug:
+        raw_text = (m.group(2) or "").strip()
+        if not raw_text:
             continue
-        canonical = normalize_slug(raw_slug, numeric_aliases)
-        note_from_group = (m.group(3) or "").strip()
-        out.append((kind, canonical, note_from_group))
+
+        # Em-dash (U+2014) is the documented visual separator between
+        # slug and note (e.g. `/sop-ack Five-Axis — five-axis-review`).
+        # Split on the first em-dash: the part before is the slug
+        # source, the part after is the note prefix.
+        slug_source = raw_text
+        note_prefix = ""
+        emdash_idx = raw_text.find("—")
+        if emdash_idx != -1:
+            slug_source = raw_text[:emdash_idx].strip()
+            note_prefix = raw_text[emdash_idx + 1 :].strip()
+
+        words = slug_source.split()
+        if not words:
+            # Slug source was empty after the em-dash split (e.g. the
+            # user wrote only a note). Emit an empty slug + the note.
+            out.append((kind, "", note_prefix))
+            continue
+
+        # Peel trailing words off the slug source until the prefix
+        # normalizes to a known alias (or to a digit-alias). This
+        # handles BOTH natural-space slugs (`/sop-ack comprehensive
+        # testing` → slug "comprehensive-testing") AND trailing-note
+        # variants (`/sop-ack 1 my note` → slug "comprehensive-testing"
+        # (alias 1), note "my note"). Without this peel-to-match step,
+        # the previous greedy `+` slug capture over-consumed trailing
+        # tokens and bled the note into the slug.
+        chosen_slug = ""
+        chosen_note_words: list[str] = []
+        for i in range(len(words), 0, -1):
+            candidate_text = " ".join(words[:i])
+            candidate = normalize_slug(candidate_text, numeric_aliases)
+            if candidate in valid_slugs or (
+                candidate_text.isdigit()
+                and numeric_aliases is not None
+                and int(candidate_text) in numeric_aliases
+            ):
+                chosen_slug = candidate
+                chosen_note_words = words[i:]
+                break
+
+        if not chosen_slug:
+            # No prefix matched a known alias — fall back to the last
+            # word as the slug and the rest as the note (graceful
+            # degradation for typos; the ack will be rejected by the
+            # downstream check that the canonical slug is in the items
+            # list).
+            chosen_slug = normalize_slug(words[-1], numeric_aliases)
+            chosen_note_words = words[:-1]
+
+        # Combine the peeled note words with the em-dash-split note
+        # prefix, in source order. Either side may be empty.
+        note_parts: list[str] = []
+        if chosen_note_words:
+            note_parts.append(" ".join(chosen_note_words))
+        if note_prefix:
+            note_parts.append(note_prefix)
+        out.append((kind, chosen_slug, " ".join(note_parts).strip()))
     return out
 
 
