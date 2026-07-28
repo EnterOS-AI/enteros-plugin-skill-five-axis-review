@@ -1,5 +1,27 @@
+# CI — plugin validation via the canonical reusable workflow in molecule-ci.
+#
+# Pinned to a molecule-ci main commit SHA, matching every other plugin repo in
+# the fleet (careful-bash, llm-judge, et al pin this same SHA).
+#
+# WHY A SHA AND NOT @main: molecule-ci commit 1896b1cafc4f ("fix(ci): replace
+# hollow reusables with executable SSOT scripts", 2026-07-17) DELETED
+# .gitea/workflows/validate-plugin.yml from main. This repo was the only plugin
+# repo pinning @main, so from that commit onward every push and every PR here
+# failed in ~1s with
+#
+#   stat /root/.cache/act/molecule-ai-molecule-ci@main/.gitea/workflows/validate-plugin.yml:
+#     no such file or directory
+#
+# Zero steps run, which reads like an infrastructure fault rather than an
+# unresolvable ref — which is why it was mis-triaged as a runner problem.
+# Verified 2026-07-28: that path is HTTP 404 at main and HTTP 200 at the SHA below.
+#
+# This restores fleet consistency using a ref that provably exists. It does NOT
+# resolve the underlying rot: the whole fleet is now pinned to a workflow that no
+# longer exists on main, so no repo can migrate forward until molecule-ci
+# republishes a successor. Tracked in molecule-ci#109.
 name: CI
 on: [push, pull_request]
 jobs:
   validate:
-    uses: molecule-ai/molecule-ci/.gitea/workflows/validate-plugin.yml@main
+    uses: molecule-ai/molecule-ci/.gitea/workflows/validate-plugin.yml@d8066f147da91072867973b9e0d867996b8a01fd
